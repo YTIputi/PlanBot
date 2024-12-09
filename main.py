@@ -1,5 +1,7 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import filters, MessageHandler, CommandHandler
 import sqlite3
 
 # Создание базы данных
@@ -27,10 +29,48 @@ def init_db():
     conn.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Привет! Я ваш планировщик. Напишите /help для списка команд.')
+    keyboard = [
+        [KeyboardButton("Добавить задачу"), KeyboardButton("Список задач")],
+        [KeyboardButton("Завершить задачу"), KeyboardButton("Удалить задачу")],
+        [KeyboardButton("История действий")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        'Привет! Я ваш планировщик. Выберите действие:',
+        reply_markup=reply_markup
+    )
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Список команд:\n/add <задача> - Добавить задачу\n/list - Показать задачи\n/done <id> - Отметить задачу выполненной\n/delete <id> - Удалить задачу\n/history - Показать историю')
+    if text == "Добавить задачу":
+        await update.message.reply_text("Введите задачу, чтобы добавить:")
+        context.user_data['action'] = 'add'
+    elif text == "Список задач":
+        await list_tasks(update, context)
+    elif text == "Завершить задачу":
+        await update.message.reply_text("Введите ID задачи, чтобы завершить:")
+        context.user_data['action'] = 'done'
+    elif text == "Удалить задачу":
+        await update.message.reply_text("Введите ID задачи, чтобы удалить:")
+        context.user_data['action'] = 'delete'
+    elif text == "История действий":
+        await history(update, context)
+    else:
+        # Обработка ввода в зависимости от предыдущего действия
+        if 'action' in context.user_data:
+            if context.user_data['action'] == 'add':
+                context.args = [text]
+                await add(update, context)
+            elif context.user_data['action'] == 'done':
+                context.args = [text]
+                await done(update, context)
+            elif context.user_data['action'] == 'delete':
+                context.args = [text]
+                await delete(update, context)
+            # Очистка действия после обработки
+            context.user_data.pop('action', None)
+        else:
+            await update.message.reply_text("Я не понимаю это действие. Выберите кнопку.")
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -114,12 +154,7 @@ def main():
 
     # Регистрация обработчиков
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('help', help_command))
-    app.add_handler(CommandHandler('add', add))
-    app.add_handler(CommandHandler('list', list_tasks))
-    app.add_handler(CommandHandler('done', done))
-    app.add_handler(CommandHandler('delete', delete))
-    app.add_handler(CommandHandler('history', history))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
 
     # Запуск бота
     app.run_polling()
